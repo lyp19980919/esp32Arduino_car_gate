@@ -2,14 +2,13 @@
 #include <WiFi.h>
 #include <esp_wifi.h>
 
-// ====== TB6612 引脚定义（全部使用安全 GPIO） ======
-#define PWMA  4
-#define AIN1  5
-#define AIN2  12
-#define BIN1  13
-#define BIN2  14
+// ====== TB6612 引脚定义（STBY 接 +5V，代码不控制） ======
+#define PWMA  4                  
+#define AIN1  5                 // 右轮方向 1
+#define AIN2  13                // 右轮方向 2
+#define BIN1  16                // 左轮方向 1
+#define BIN2  17                // 左轮方向 2
 #define PWMB  15
-#define STBY  16
 
 // ====== PWM 配置 ======
 #define PWM_FREQ       1000
@@ -45,23 +44,25 @@ void readMacAddress() {
 
 // ====== 电机控制 ======
 void setMotor(int leftSpeed, int rightSpeed) {
+    // ===== 左轮：B 通道 =====
     if (leftSpeed > 0) {
-        digitalWrite(AIN1, HIGH); digitalWrite(AIN2, LOW);
-    } else if (leftSpeed < 0) {
-        digitalWrite(AIN1, LOW); digitalWrite(AIN2, HIGH);
-    } else {
-        digitalWrite(AIN1, LOW); digitalWrite(AIN2, LOW);
-    }
-    ledcWrite(PWMA, abs(leftSpeed));
-
-    if (rightSpeed > 0) {
         digitalWrite(BIN1, HIGH); digitalWrite(BIN2, LOW);
-    } else if (rightSpeed < 0) {
+    } else if (leftSpeed < 0) {
         digitalWrite(BIN1, LOW); digitalWrite(BIN2, HIGH);
     } else {
         digitalWrite(BIN1, LOW); digitalWrite(BIN2, LOW);
     }
-    ledcWrite(PWMB, abs(rightSpeed));
+    ledcWrite(PWMB, abs(leftSpeed));
+
+    // ===== 右轮：A 通道 =====
+    if (rightSpeed > 0) {
+        digitalWrite(AIN1, HIGH); digitalWrite(AIN2, LOW);
+    } else if (rightSpeed < 0) {
+        digitalWrite(AIN1, LOW); digitalWrite(AIN2, HIGH);
+    } else {
+        digitalWrite(AIN1, LOW); digitalWrite(AIN2, LOW);
+    }
+    ledcWrite(PWMA, abs(rightSpeed));
 }
 
 // ====== 执行指令 ======
@@ -87,7 +88,7 @@ void OnDataRecv(const esp_now_recv_info_t *recv_info, const uint8_t *incomingDat
     if (len != sizeof(incomingCmd)) return;
     memcpy(&incomingCmd, incomingData, sizeof(incomingCmd));
 
-    lastCmdTime = millis();  // 刷新超时计时
+    lastCmdTime = millis();
     executeCmd(incomingCmd.cmd, incomingCmd.speed);
 }
 
@@ -97,8 +98,6 @@ void setup() {
 
     pinMode(AIN1, OUTPUT); pinMode(AIN2, OUTPUT);
     pinMode(BIN1, OUTPUT); pinMode(BIN2, OUTPUT);
-    pinMode(STBY, OUTPUT);
-    digitalWrite(STBY, HIGH);
 
     ledcAttach(PWMA, PWM_FREQ, PWM_RESOLUTION);
     ledcAttach(PWMB, PWM_FREQ, PWM_RESOLUTION);
@@ -121,7 +120,6 @@ void setup() {
 }
 
 void loop() {
-    // 超时保护：超过 CMD_TIMEOUT_MS 没收到新指令，自动停止
     if (motorRunning && (millis() - lastCmdTime > CMD_TIMEOUT_MS)) {
         setMotor(0, 0);
         motorRunning = false;
